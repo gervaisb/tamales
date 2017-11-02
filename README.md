@@ -1,3 +1,5 @@
+[![BCH compliance](https://bettercodehub.com/edge/badge/gervaisb/tamales?branch=master)](https://bettercodehub.com/)
+
 # Tamales
 > _Tamales_ is a standalone service intended to synchronize tasks between 
 different systems. 
