@@ -1,45 +1,51 @@
 package com.github.tamales
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.SupervisorStrategy.Stop
+import akka.actor.{Actor, ActorLogging, OneForOneStrategy, PoisonPill, Props, Terminated}
 import com.github.tamales.Provider.Refresh
-import com.github.tamales.ProviderManager.Schedule
-import com.github.tamales.impls.{Confluence, Evernote, Jira}
-
-import scala.collection._
+import com.github.tamales.impls.{Evernote, Jira}
 
 object ProviderManager {
   def props(events:TasksEventBus) = Props(new ProviderManager(events))
-
-  final case object Schedule
 }
 
 /** Maintains a set of configured providers and dispatch the `Refresh` command
   * to all of them.
   *
-  * @param events  The event bus used to publish a {@link TaskFound} event
+  * @param events The event bus used to publish a [[com.github.tamales.Publisher.TaskFound]] event
   */
 class ProviderManager(val events:TasksEventBus) extends Actor with ActorLogging with ActorConfig {
-  import scala.concurrent.ExecutionContext.Implicits.global
-  import scala.concurrent.duration._
 
-  private var providers = mutable.TreeSet.empty[ActorRef]
-  override def preStart() = {
+  override def supervisorStrategy: OneForOneStrategy = OneForOneStrategy(){
+    case cause =>
+      log.warning("One provider failed due to \"{}\"; stopping it.", cause)
+      Stop
+  }
+
+  override def preStart(): Unit = {
     if ( isConfigured("providers.evernote") ) {
-      providers += context.actorOf(Evernote.props(events), "evernote")
+      context.actorOf(Evernote.props(events), "evernote")
     }
     if ( isConfigured("providers.jira") ) {
-      providers += context.actorOf(Jira.props(events), "jira")
+      context.actorOf(Jira.props(events), "jira")
     }
+    providers.foreach(context.watch)
     log.info("Provider manager started with {} provider(s)", providers.size)
   }
 
-  override def receive = {
+  override def receive: Receive = {
     case Refresh =>
-      log.info("Refreshing {} provider(s)", providers.size)
+      log.debug("Refreshing {} provider(s)", providers.size)
       providers.foreach { _ ! Refresh }
-    case Schedule =>
-      log.info("Scheduling refresh for now")
-      context.system.scheduler.schedule(0.seconds, 30.minutes, self, Refresh)
+    case Terminated(actor) =>
+      if ( providers.isEmpty ) {
+        log.info("All providers are terminated, terminating the manager")
+        self ! PoisonPill
+      } else {
+        log.debug("Provider {} terminated. ({} remaining)", actor.path.name, providers.size)
+      }
   }
+
+  private def providers = context.children
 
 }
