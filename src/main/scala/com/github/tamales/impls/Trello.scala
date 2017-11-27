@@ -30,7 +30,7 @@ class Trello extends Actor with ActorLogging with ActorConfig {
   private val Backlog = cfg.incompleteListId
   private val Done = cfg.completeListId
 
-  override def receive = {
+  override def receive:Receive = {
     case TaskFound(task, emitter) =>
       createOrUpdate(task).foreach { location =>
         emitter ! TaskSaved(task, Some(location))
@@ -91,7 +91,7 @@ class Trello extends Actor with ActorLogging with ActorConfig {
         if ( cards.isEmpty ) {
           None
         } else {
-          val card = cards(0)
+          val card = cards.head
           val task = new Task(id, (card \ "name").as[String], Some((card \ "idList").as[String] == Done))
           Some(((card \"id").as[String] -> task))
         }
@@ -119,12 +119,12 @@ class Trello extends Actor with ActorLogging with ActorConfig {
 
   class Cfg {
     case class Api(
-                    val key: String = config.getString("publishers.trello.api.key"),
-                    val token: String = config.getString("publishers.trello.api.token")
+                    key: String = config.getString("publishers.trello.api.key"),
+                    token: String = config.getString("publishers.trello.api.token")
                   )
     val api = Api()
     val boardId:String = config.getString("publishers.trello.boardId")
-    val incompleteListId = config.getString("publishers.trello.list.incompleteId")
-    val completeListId = config.getString("publishers.trello.list.completeId")
+    val incompleteListId: String = config.getString("publishers.trello.list.incompleteId")
+    val completeListId: String = config.getString("publishers.trello.list.completeId")
   }
 }
