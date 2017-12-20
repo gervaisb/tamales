@@ -3,7 +3,7 @@ package com.github.tamales
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import com.github.tamales.Provider.Refresh
 import com.github.tamales.ProviderManager.Schedule
-import com.github.tamales.impls.{Confluence, Evernote, Jira}
+import com.github.tamales.impls.{Confluence, Evernote, Jira, Exchange}
 
 import scala.collection._
 
@@ -23,17 +23,20 @@ class ProviderManager(val events:TasksEventBus) extends Actor with ActorLogging 
   import scala.concurrent.duration._
 
   private var providers = mutable.TreeSet.empty[ActorRef]
-  override def preStart() = {
+  override def preStart():Unit = {
     if ( isConfigured("providers.evernote") ) {
       providers += context.actorOf(Evernote.props(events), "evernote")
     }
     if ( isConfigured("providers.jira") ) {
       providers += context.actorOf(Jira.props(events), "jira")
     }
+    if ( isConfigured("providers.exchange") ) {
+      providers += context.actorOf(Exchange.props(events), "exchange")
+    }
     log.info("Provider manager started with {} provider(s)", providers.size)
   }
 
-  override def receive = {
+  override def receive:Receive = {
     case Refresh =>
       log.info("Refreshing {} provider(s)", providers.size)
       providers.foreach { _ ! Refresh }

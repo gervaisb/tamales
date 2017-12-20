@@ -26,11 +26,17 @@ provider, this one is not used.
         jira {
           location = "https://jira.acme.com"
           password = "clear text password !"
-          username = ".."
+          username = "username"
         }
         
         evernote {
           token = "everenote api token"
+        }
+        
+        exchange {
+          account = "domain/username"
+          password = "clear text password !"
+          url = "https://exchange.acme.com/EWS/Exchange.asmx"
         }
     }
     
