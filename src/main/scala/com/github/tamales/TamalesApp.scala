@@ -5,9 +5,9 @@ import akka.actor.{ActorSystem, Terminated}
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
+import scala.language.postfixOps
 
 object TamalesApp extends App {
-  import scala.concurrent.ExecutionContext.Implicits.global
   val system = ActorSystem("tasks-system")
 
   try {
@@ -20,5 +20,4 @@ object TamalesApp extends App {
     Await.ready(termination, 1 minute)
     println("Done")
   }
-
 }

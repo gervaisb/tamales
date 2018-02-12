@@ -8,5 +8,5 @@ class Task(val id:TaskId, var summary:String, var done:Option[Boolean]=None) {
     this
   }
 
-  override def toString = s"Task($id, $summary, .., $done)"
+  override def toString = s"Task($id, $summary, $done)"
 }
