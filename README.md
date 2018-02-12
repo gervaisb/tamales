@@ -34,7 +34,7 @@ provider, this one is not used.
         }
         
         exchange {
-          account = "domain/username"
+          account = "username@domain"
           password = "clear text password !"
           url = "https://exchange.acme.com/EWS/Exchange.asmx"
         }
