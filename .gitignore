@@ -62,6 +62,7 @@ src_managed/
 project/boot/
 project/plugins/project/
 project/target/
+project/target/*
 .history
 .cache
 .lib/
