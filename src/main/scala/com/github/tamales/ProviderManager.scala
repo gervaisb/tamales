@@ -18,7 +18,11 @@ class ProviderManager(val events:TasksEventBus) extends Actor with ActorLogging 
 
   override def supervisorStrategy: OneForOneStrategy = OneForOneStrategy(){
     case cause =>
-      log.warning("One provider failed due to \"{}\"; stopping it.", cause)
+      val provider = cause.getStackTrace.find(_.getClassName.startsWith("com.github.tamales.impls"))
+        .map(name => name.getClassName.substring("com.github.tamales.impls.".length))
+        .map(name => s"$name provider")
+        .getOrElse("One provider")
+      log.warning("{} failed due to \"{}\"; stopping it.", provider, cause)
       Stop
   }
 
@@ -29,10 +33,10 @@ class ProviderManager(val events:TasksEventBus) extends Actor with ActorLogging 
     if ( isConfigured("providers.jira") ) {
       context.actorOf(Jira.props(events), "jira")
     }
-    providers.foreach(context.watch)
     if ( isConfigured("providers.exchange") ) {
-      providers += context.actorOf(Exchange.props(events), "exchange")
+      context.actorOf(Exchange.props(events), "exchange")
     }
+    providers.foreach(context.watch)
     log.info("Provider manager started with {} provider(s)", providers.size)
   }
 
