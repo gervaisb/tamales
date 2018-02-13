@@ -1,16 +1,19 @@
 package com.github.tamales.impls
 
-import java.net.{URI, URL, URLEncoder}
+import java.net.{URI, URLEncoder}
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.X509TrustManager
 
-import akka.actor.{Actor, ActorLogging, Props}
+import akka.actor.{Actor, ActorLogging, PoisonPill, Props}
+import akka.util.Timeout
 import com.github.tamales.Provider.Refresh
 import com.github.tamales.Publisher.TaskFound
+import com.github.tamales.impls.Exchange.Found
 import com.github.tamales.{ActorConfig, Task, TaskId, TasksEventBus}
 import microsoft.exchange.webservices.data.core.enumeration.misc.ExchangeVersion
 import microsoft.exchange.webservices.data.core.enumeration.property.{MapiPropertyType, WellKnownFolderName}
+import microsoft.exchange.webservices.data.core.exception.service.remote.ServiceResponseException
 import microsoft.exchange.webservices.data.core.service.folder.Folder
 import microsoft.exchange.webservices.data.core.service.item.EmailMessage
 import microsoft.exchange.webservices.data.core.service.schema.TaskSchema
@@ -20,16 +23,16 @@ import microsoft.exchange.webservices.data.property.definition.ExtendedPropertyD
 import microsoft.exchange.webservices.data.search.filter.SearchFilter
 import microsoft.exchange.webservices.data.search.filter.SearchFilter.IsEqualTo
 import microsoft.exchange.webservices.data.search.{FolderView, ItemView}
+import org.apache.http.config.Registry
 
 import scala.collection.JavaConverters._
-import akka.util.Timeout
-import com.github.tamales.impls.Exchange.Found
-import org.apache.http.config.Registry
 
 
 object Exchange {
   def props(events: TasksEventBus) = Props(new Exchange(events))
-  case class Found(tasks:Seq[Task])
+  case class Found(tasks:Seq[Task]) {
+    override def toString: String = s"${super.toString} with ${tasks.size} task(s)"
+  }
 }
 
 class Exchange(private val events: TasksEventBus) extends EwsActor {
@@ -37,6 +40,7 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
    * actors. More stable solution is to use imperative and blocking style to walk the folders tree and search in each.
    */
   implicit val timeout = Timeout(20, TimeUnit.SECONDS)
+  private var counter = 0
 
   private object FollowUp {
     val Property = new ExtendedPropertyDefinition(0x1090, MapiPropertyType.Integer)
@@ -53,16 +57,29 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
       tasks.foreach { task =>
         log.info(s"Found '${task.summary}' in ${task.id}")
         events.publish(TaskFound(task, self))
+        counter -= 1
       }
+      terminateIfDone()
+  }
+
+  private def terminateIfDone() = if ( counter<=0 ) {
+    self ! PoisonPill
+  } else {
+    log.debug("Cannot self stop actor, still {} tasks to publish", counter)
   }
 
   private def browse(folder: Folder):Unit = {
-    log.debug("Browsing "+folder.getDisplayName)
-    folder.findFolders(new FolderView(Integer.MAX_VALUE)).getFolders.asScala
-      .foreach( folder => {
-        searchIn(folder)
-        browse(folder)
-      })
+    try {
+      log.debug("Browsing " + folder.getDisplayName)
+      searchIn(folder)
+      folder.findFolders(new FolderView(Integer.MAX_VALUE)).getFolders.asScala
+        .foreach(folder => {
+          browse(folder)
+        })
+    } catch {
+      case e:ServiceResponseException =>
+        log.error(s"Failed to browse {} : {}.", folder.getDisplayName, e)
+    }
   }
 
   private def searchIn(folderName: WellKnownFolderName) = {
@@ -72,7 +89,7 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
         task.getSubject,
         Some(false))
     }
-    sender ! Found(tasks)
+    found(tasks)
   }
 
   private def searchIn(folder: Folder):Unit = {
@@ -90,6 +107,11 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
         Some(false)
       )
     }
+    found(tasks)
+  }
+
+  private def found(tasks: Seq[Task]) = if ( tasks.nonEmpty ) {
+    counter += tasks.size
     self ! Found(tasks)
   }
 
@@ -106,12 +128,18 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
 
   private def select(properties:PropertySet, from:Folder, where:SearchFilter):Seq[EmailMessage] = {
     log.debug(s"Selecting $properties from $from where $where")
-    val result = service.findItems(from.getId, where, new ItemView(Integer.MAX_VALUE))
-    if ( result.getTotalCount>0 ) {
-      service.loadPropertiesForItems(result, properties)
-      result.getItems.asScala.map(_.asInstanceOf[EmailMessage])
-    } else {
-      Seq.empty[EmailMessage]
+    try {
+      val result = service.findItems(from.getId, where, new ItemView(Integer.MAX_VALUE))
+      if (result.getTotalCount > 0) {
+        service.loadPropertiesForItems(result, properties)
+        result.getItems.asScala.map(_.asInstanceOf[EmailMessage])
+      } else {
+        Seq.empty[EmailMessage]
+      }
+    } catch {
+      case e:ServiceResponseException =>
+        log.error(s"Failed to select {} from {} : {}.", properties, from.getDisplayName, e)
+        Nil
     }
   }
 }
@@ -119,13 +147,13 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
 
 
 abstract class EwsActor extends Actor with ActorConfig with ActorLogging {
+  import java.security.GeneralSecurityException
+
   import microsoft.exchange.webservices.data.EWSConstants
   import microsoft.exchange.webservices.data.core.EwsSSLProtocolSocketFactory
   import org.apache.http.config.RegistryBuilder
-  import org.apache.http.conn.socket.ConnectionSocketFactory
-  import org.apache.http.conn.socket.PlainConnectionSocketFactory
+  import org.apache.http.conn.socket.{ConnectionSocketFactory, PlainConnectionSocketFactory}
   import org.apache.http.conn.ssl.NoopHostnameVerifier
-  import java.security.GeneralSecurityException
 
   private val cfg = new Cfg
   protected lazy val service:ExchangeService = {
