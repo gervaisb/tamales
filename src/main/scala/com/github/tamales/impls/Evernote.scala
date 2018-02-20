@@ -56,7 +56,6 @@ class Evernote(private val events:TasksEventBus) extends Actor with ActorConfig 
         log.debug(s"Found ${task.id} from Evernote")
         events.publish(TaskFound(task, self))
         watch(task)
-
       }
       log.info(s"Refresh done, waiting response to ${pending.size} event(s).")
       terminateIfDone()
@@ -117,7 +116,7 @@ class Evernote(private val events:TasksEventBus) extends Actor with ActorConfig 
       s"""<div><en-todo(?:\\s*)(?:checked="(true|false)")?(?:\\s*)/>${task.summary}([^<]*)</div>""",
       s"""<div><en-todo$checked/>${task.summary} ($link)</div>""")
     note.setContent(content)
-    if ( !note.getTagNames.asScala.contains("Tracked") ) {
+    if ( note.getTagNames==null || !note.getTagNames.asScala.contains("Tracked") ) {
       note.addToTagNames("Tracked")
     }
     note.unsetAttributes()
