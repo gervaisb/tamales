@@ -8,17 +8,18 @@ import javax.net.ssl.X509TrustManager
 import akka.actor.{Actor, ActorLogging, PoisonPill, Props}
 import akka.util.Timeout
 import com.github.tamales.Provider.Refresh
-import com.github.tamales.Publisher.TaskFound
+import com.github.tamales.Publisher.{TaskFound, TaskSaved}
 import com.github.tamales.impls.Exchange.Found
 import com.github.tamales.{ActorConfig, Task, TaskId, TasksEventBus}
-import microsoft.exchange.webservices.data.core.enumeration.misc.ExchangeVersion
+import microsoft.exchange.webservices.data.core.enumeration.misc.{ExchangeVersion, IdFormat}
 import microsoft.exchange.webservices.data.core.enumeration.property.{MapiPropertyType, WellKnownFolderName}
 import microsoft.exchange.webservices.data.core.exception.service.remote.ServiceResponseException
 import microsoft.exchange.webservices.data.core.service.folder.Folder
-import microsoft.exchange.webservices.data.core.service.item.EmailMessage
+import microsoft.exchange.webservices.data.core.service.item.{EmailMessage, Item}
 import microsoft.exchange.webservices.data.core.service.schema.TaskSchema
 import microsoft.exchange.webservices.data.core.{ExchangeService, PropertySet}
 import microsoft.exchange.webservices.data.credential.WebCredentials
+import microsoft.exchange.webservices.data.misc.id.AlternateId
 import microsoft.exchange.webservices.data.property.definition.ExtendedPropertyDefinition
 import microsoft.exchange.webservices.data.search.filter.SearchFilter
 import microsoft.exchange.webservices.data.search.filter.SearchFilter.IsEqualTo
@@ -49,16 +50,20 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
 
   def receive:Receive = {
     case Refresh =>
-      log.info("Searching tasks from Exchange's tasks and mails")
+      log.debug("Searching tasks from Exchange's tasks and mails")
       searchIn(WellKnownFolderName.Tasks)
       browse(Folder.bind(service, WellKnownFolderName.Root))
+      log.info(s"Search done, $counter task(s) found")
 
     case Found(tasks) =>
+      counter += tasks.size
       tasks.foreach { task =>
-        log.info(s"Found '${task.summary}' in ${task.id}")
+        log.debug(s"Found '${task.summary}' in ${task.id}")
         events.publish(TaskFound(task, self))
-        counter -= 1
       }
+
+    case TaskSaved(_, _) =>
+      counter -= 1
       terminateIfDone()
   }
 
@@ -83,12 +88,8 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
   }
 
   private def searchIn(folderName: WellKnownFolderName) = {
-    val tasks = select(from = folderName, where=new IsEqualTo(TaskSchema.IsComplete, false)).map { task =>
-      new Task(
-        TaskId(service.getUrl.resolve("/tasks/" + task.getId)),
-        task.getSubject,
-        Some(false))
-    }
+    val tasks = select(from = folderName, where=new IsEqualTo(TaskSchema.IsComplete, false))
+      .map { convert }
     found(tasks)
   }
 
@@ -98,20 +99,24 @@ class Exchange(private val events: TasksEventBus) extends EwsActor {
       properties.add(FollowUp.Property)
       properties
     }
-    val tasks = select(properties, from=folder, where=new IsEqualTo(FollowUp.Property, FollowUp.incomplete)).map { email =>
-      val path = URLEncoder.encode(folder.getDisplayName +"/"+ email.getSubject, "UTF-8")
-      val host = "https://"+service.getUrl.toString+"/owa/#"
-      new com.github.tamales.Task(
-        TaskId(URI.create(host+path)),
-        email.getSubject,
-        Some(false)
-      )
-    }
+    val tasks = select(properties, from=folder, where=new IsEqualTo(FollowUp.Property, FollowUp.incomplete))
+      .map { convert }
     found(tasks)
   }
 
+  private def convert(item:Item):Task = {
+    // https://msdn.microsoft.com/en-us/library/bb891801(v=exchg.150).aspx
+    val source = new AlternateId(IdFormat.EwsId, item.getId.getUniqueId, mailbox)
+    val owaId = service.convertId(source, IdFormat.OwaId).asInstanceOf[AlternateId]
+    val uri = s"${service.getUrl.getScheme}://${service.getUrl.getHost}/owa/?ae=Item&a=Open&t=${item.getItemClass}&id=${owaId.getUniqueId}"
+    new com.github.tamales.Task(
+      TaskId(URI.create(uri)),
+      item.getSubject,
+      Some(false)
+    )
+  }
+
   private def found(tasks: Seq[Task]) = if ( tasks.nonEmpty ) {
-    counter += tasks.size
     self ! Found(tasks)
   }
 
@@ -156,6 +161,9 @@ abstract class EwsActor extends Actor with ActorConfig with ActorLogging {
   import org.apache.http.conn.ssl.NoopHostnameVerifier
 
   private val cfg = new Cfg
+
+  protected lazy val mailbox:String = cfg.account
+
   protected lazy val service:ExchangeService = {
     val credentials = new WebCredentials(cfg.username, cfg.password, cfg.domain)
     val service = new ExchangeService(ExchangeVersion.Exchange2010_SP2){
@@ -189,5 +197,6 @@ abstract class EwsActor extends Actor with ActorConfig with ActorLogging {
     }
     private [EwsActor] val password = config.getString("providers.exchange.password")
     private [EwsActor] val url = new URI(config.getString("providers.exchange.url"))
+    private [EwsActor] val account = config.getString("providers.exchange.account")
   }
 }
