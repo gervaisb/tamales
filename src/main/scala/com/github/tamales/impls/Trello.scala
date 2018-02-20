@@ -17,11 +17,9 @@ import scala.util.{Failure, Success, Try}
   * others are moved into the 'incomplete' configured list.
   * Each task are represented via a card with a link to the provider task URI
   */
+// TODO, Add a checklist item for tasks that are tracked in a "project" card but still link them
 object Trello {
   def props() = Props(new Trello())
-
-  private type CardId = String
-  private type Card = (CardId, Task)
 }
 class Trello extends Actor with ActorLogging with ActorConfig {
   import Trello._
@@ -41,11 +39,11 @@ class Trello extends Actor with ActorLogging with ActorConfig {
     find(task.id).fold {
       create(task)
     }{ current =>
-      update(current.copy(_2 = current._2.update(task)))
+      update(current.copy(task = current.task.update(task)))
     }
 
   private def create(task:Task):Try[URI] = {
-    log.info(s"Creating task ${task.id} into Trello")
+    log.info(s"Creating task '${task.summary} (${task.id})' into Trello")
     val payload = new FormBody.Builder()
       .add("name", task.summary)
       .add("idList", listOf(task))
@@ -63,13 +61,14 @@ class Trello extends Actor with ActorLogging with ActorConfig {
   }
 
   private def update(card:Card):Try[URI] = {
-    log.info(s"Updating card ${card._1} for task ${card._2.id} into Trello")
-    val list: CardId = listOf(card._2)
+    log.info(s"Updating card '${card.name} (${card.id})' for task '${card.task.summary} (${card.task.id.self})' into Trello")
+
+    val newList: String = listOf(card.task)
     val value = new FormBody.Builder()
-      .add("value", list)
+      .add("value", newList)
       .build()
     val request = new Request.Builder()
-      .url(pathTo(s"cards/${card._1}/idList"))
+      .url(pathTo(s"cards/${card.id}/idList"))
       .put(value)
       .build()
     execute(request).map { r =>
@@ -79,9 +78,8 @@ class Trello extends Actor with ActorLogging with ActorConfig {
     }
   }
 
-  private def find(id:TaskId):Option[(CardId, Task)] = {
-    val query = "&card_fields=name,idList" +
-      s"&idBoards=${cfg.boardId}&query=has:attachments ${id.self}"
+  private def find(id:TaskId):Option[Card] = {
+    val query = s"""&card_fields=name,idList,idChecklists&idBoards=${cfg.boardId}&query=is:open has:attachments "${id.self}"""
     val request = new Request.Builder()
       .url(pathTo("search") + query)
       .build()
@@ -91,9 +89,10 @@ class Trello extends Actor with ActorLogging with ActorConfig {
         if ( cards.isEmpty ) {
           None
         } else {
-          val card = cards.head
-          val task = new Task(id, (card \ "name").as[String], Some((card \ "idList").as[String] == Done))
-          Some(((card \"id").as[String] -> task))
+          val json = cards.head
+          val task = new Task(id, (json \ "name").as[String], Some((json \ "idList").as[String] == Done))
+          val card = Card((json \ "id").as[String], (json \ "name").as[String], (json \ "idList").as[String], (json \ "idChecklists").asOpt[String], task)
+          Some(card)
         }
       case Failure(e) => throw e
     }
@@ -101,7 +100,7 @@ class Trello extends Actor with ActorLogging with ActorConfig {
 
   private def execute(request:Request):Try[Response] = {
     val response = http.newCall(request).execute()
-    if ( response.isSuccessful ) {
+    if (response.isSuccessful) {
       Success(response)
     } else {
       Failure(new IOException(s"${request.method()} ${request.url()} -> Http_${response.code}"))
@@ -116,6 +115,8 @@ class Trello extends Actor with ActorLogging with ActorConfig {
       case true => Done
       case _ => Backlog
     }.get
+
+  case class Card(id:String, name:String, list:String, checklist:Option[String], task:Task)
 
   class Cfg {
     case class Api(
