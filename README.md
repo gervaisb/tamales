@@ -59,12 +59,12 @@ _______________________________________________________________________________
 # Contribution
 
 ## Build
-After cloning the project, a simple `sbt package` should produce the required 
-binaries into _target\scala-{x}.{y}_.
+After cloning the project, a simple `sbt universal:packageBin` should produce 
+a zip with the required binaries into _target\universal_.
 
     $ git clone ..
     $ cd tamales
-    $ sbt package
+    $ sbt universal:packageBin
 
 ## Architecture
 Build on [Akka](https://akka.lightbend.io), _tamales_ is made of two major kind 

@@ -1,7 +1,6 @@
 scalaVersion := "2.12.2"
 
 enablePlugins(JavaAppPackaging)
-enablePlugins(WindowsPlugin)
 
 lazy val root = (project in file("."))
   .settings(
@@ -16,5 +15,5 @@ lazy val root = (project in file("."))
   .settings(
     packageSummary := "Tamales",
     maintainer := "Bliase Gervais <gervais.b@gmail.com>",
-    packageDescription := s"""Tamales, tasks synchronization. Windows MSI."""
+    packageDescription := s"""Tamales, tasks synchronization"""
   )
