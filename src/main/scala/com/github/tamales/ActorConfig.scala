@@ -6,11 +6,12 @@ import akka.ConfigurationException
 import com.typesafe.config.ConfigFactory
 
 object ActorConfig {
-  private lazy val home = new File(System.getProperty("user.home"), ".tamales")
+  private lazy val home =
+    new File(System.getProperty("user.home"), ".config")
   private lazy val config = {
     val default = ConfigFactory.load()
     val user = {
-      val file = new File(home, "configuration.conf")
+      val file = new File(home, "tamales.conf")
       if (file.exists()) {
         ConfigFactory.parseFile(file)
       } else {
@@ -26,6 +27,6 @@ trait ActorConfig {
 
   def config = ActorConfig.config
 
-  def isConfigured(path:String) = config.hasPath(path)
+  def isConfigured(path: String) = config.hasPath(path)
 
 }

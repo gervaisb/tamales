@@ -3,7 +3,7 @@ package com.github.tamales
 import akka.actor.SupervisorStrategy.Stop
 import akka.actor.{Actor, ActorLogging, OneForOneStrategy, PoisonPill, Props, Terminated}
 import com.github.tamales.Provider.Refresh
-import com.github.tamales.impls.{Evernote, Jira, Exchange}
+import com.github.tamales.impls.{Evernote, Exchange, GitLab, Jira}
 
 object ProviderManager {
   def props(events:TasksEventBus) = Props(new ProviderManager(events))
@@ -35,6 +35,9 @@ class ProviderManager(val events:TasksEventBus) extends Actor with ActorLogging 
     }
     if ( isConfigured("providers.exchange") ) {
       context.actorOf(Exchange.props(events), "exchange")
+    }
+    if ( isConfigured("providers.gitlab") ) {
+      context.actorOf(GitLab.props(events), "gitlab")
     }
     providers.foreach(context.watch)
     log.info("Provider manager started with {} provider(s)", providers.size)

@@ -30,13 +30,18 @@ provider, this one is not used.
         }
         
         evernote {
-          token = "everenote api token"
+          token = "evernote api token"
         }
         
         exchange {
           account = "username@domain"
           password = "clear text password !"
           url = "https://exchange.acme.com/EWS/Exchange.asmx"
+        }
+
+        gitlab {
+          location = "https://gitlab.com"
+          access_token = "private access token"
         }
     }
     
@@ -90,4 +95,3 @@ The provider manager maintains a set of configured provider and dispatch the
                 |               |                   [ ]--TaskFound-->[ ]
                [ ]<-----------------TaskSaved------------------------[ ]                          
                 |               |                    |                |
-                
